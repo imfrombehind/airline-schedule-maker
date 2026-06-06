@@ -8,3 +8,4 @@ fr24sdk
 pyiceberg
 pytz
 airportsdata
+pycountry
