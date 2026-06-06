@@ -7,3 +7,4 @@ plotly
 fr24sdk
 pyiceberg
 pytz
+airportsdata
