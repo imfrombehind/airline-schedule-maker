@@ -11,6 +11,18 @@ supabase = setup_page("Detail Operations")
 current_profile, operator_icaos = get_active_operator_network()
 
 # --- 2. TOP HEADER NAVIGATION ---
+@st.dialog("Authentication Required")
+def secure_navigate(destination_page):
+    st.write("Please enter the PIN to proceed.")
+
+    pin = st.text_input("Enter PIN", type="password", key=f"pin_input_{destination_page}")
+    
+    if st.button("Submit PIN", key=f"submit_{destination_page}"):
+        if pin == st.secrets["ADMIN_PIN"]: 
+            st.switch_page(destination_page)
+        else:
+            st.error("Incorrect PIN. Please try again.")
+
 col_title, col_edit, col_nav1, col_nav2, col_back = st.columns([2.5, 1, 1, 1, 1], vertical_alignment="bottom")
 
 with col_title:
@@ -18,14 +30,14 @@ with col_title:
 with col_edit:
     if st.button("Edit Profile", width='stretch'):
         st.session_state.edit_profile_name = current_profile
-        st.switch_page("pages/operator_profiles.py")
+        secure_navigate("pages/operator_profiles.py")
 with col_nav1:
     if st.button("Daily Prediction", width='stretch'):
         st.session_state.edit_profile_name = current_profile
         st.switch_page("pages/daily_prediction.py")
 with col_nav2:
     if st.button("Input Flights", width='stretch'):
-        st.switch_page("pages/flight_input_handler.py")
+        secure_navigate("pages/flight_input_handler.py")
 with col_back:
     if st.button("Back", width='stretch'):
         st.switch_page("pages/operators.py")
