@@ -3,7 +3,7 @@ from utils import setup_page
 
 supabase = setup_page("Aviation Data Visualization & Predictive Scheduling System")
 
-st.title("Home")
+st.title("Homepage")
 col1, col2 = st.columns([3, 1])
     
 with col1:
@@ -24,7 +24,7 @@ with col1:
         * **Phase 2:** Machine Learning Model Training & Predictive Engineering  
         * **Phase 3:** Automated Daily Schedule Suggestions & Corrections  
 
-        > **Current Focus:** I am actively executing **Phase 1**. As training production-ready ML models requires extensive historical benchmarks, therefore, during the wait, a dedicated operational branch has been introduced in the interim. This branch allows users to seamlessly ingest, structure, and contrast operational metrics across different selected airliners.
+        As training production-ready ML models requires extensive historical benchmarks, therefore, during the wait, a dedicated operational branch has been introduced in the interim. This branch allows users to seamlessly ingest, structure, and contrast operational metrics across different selected airliners.
 
         ---
 
@@ -40,13 +40,13 @@ with col1:
         * `type`: ICAO aircraft type designator.
         * `reg`: Aircraft registration number (tail number).
         * `orig_icao`: ICAO code for the origin airport.
-        * `datetime_takeoff`: Datetime of takeoff in UTC (YYYY-MM-DDTHH:MM:SS),
-        * `dest_icao`: ICAO code for the intended destination airport,
-        * `dest_icao_actual`: ICAO code for the actual destination airport (if diverted),
-        * `datetime_landed`: Datetime of landing in UTC (YYYY-MM-DDTHH:MM:SS),
-        * `hex`: 24-bit Mode-S identifier in hexadecimal format,
-        * `first_seen`: Datetime when the aircraft was first detected for this flight leg (UTC),
-        * `last_seen`: Datetime when the aircraft was last detected for this flight leg (UTC),
+        * `datetime_takeoff`: Datetime of takeoff in UTC (YYYY-MM-DDTHH:MM:SS).
+        * `dest_icao`: ICAO code for the intended destination airport.
+        * `dest_icao_actual`: ICAO code for the actual destination airport (if diverted).
+        * `datetime_landed`: Datetime of landing in UTC (YYYY-MM-DDTHH:MM:SS).
+        * `hex`: 24-bit Mode-S identifier in hexadecimal format.
+        * `first_seen`: Datetime when the aircraft was first detected for this flight leg (UTC).
+        * `last_seen`: Datetime when the aircraft was last detected for this flight leg (UTC).
         * `flight_ended`: Boolean flag indicating if the flight is historical (`true`) or currently tracked (`false`).
 
         ---
