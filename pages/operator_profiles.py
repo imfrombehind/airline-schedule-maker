@@ -217,7 +217,7 @@ with btn_col2:
                             "country": str(st.session_state[f"sub_country_{sub_id}"])
                         })
 
-                with st.status(f"Validating {icao} and fetching 7-day history...", expanded=True) as status:
+                with st.status(f"Validating {icao} and fetching 30-day history...", expanded=True) as status:
                     try:
                         # STEP A: Insert Database Records (Required so API flights have valid foreign keys)
                         status.write("Creating temporary database relations...")
@@ -226,7 +226,7 @@ with btn_col2:
                             supabase.table("operators").insert(subsidiary_payloads).execute()
 
                         # STEP B: Run the API Flight Ingestion
-                        success, result = run_historical_ingestion(operator_icaos, days_back=7)
+                        success, result = run_historical_ingestion(operator_icaos, days_back=30)
 
                         # STEP C: Evaluate Results
                         if success and isinstance(result, int) and result > 0:

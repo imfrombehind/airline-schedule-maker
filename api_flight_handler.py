@@ -238,7 +238,7 @@ def process_and_store_flights(operator_icao, api_response, status_ui=None):
 
     return success_count
 
-def run_historical_ingestion(operator_list, days_back=7):
+def run_historical_ingestion(operator_list, days_back=30):
     api_operator_string = ",".join(operator_list)   
     
     now_utc = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
@@ -313,7 +313,7 @@ def run_historical_ingestion(operator_list, days_back=7):
                 total_flights += count
                 status.write(f"Batch update finalized. Added `{count}` tracking elements to ledger.")
                 
-                # If we got LESS than 20 flights, we have reached the very end of the 7 days
+                # If we got LESS than 20 flights, we have reached the very end of the 30 days
                 if len(raw_flights) < 20:
                     print(f"Reached the end. Total flights saved: {total_flights}")
                     break
