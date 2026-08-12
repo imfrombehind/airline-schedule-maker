@@ -242,8 +242,7 @@ def run_historical_ingestion(operator_list, days_back=30):
     api_operator_string = ",".join(operator_list)   
     
     now_utc = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
-    end_date_str = now_utc.strftime('%Y-%m-%dT%H:%M:%S')
-    
+
     # 1. Set the default start date to be 'days_back' days before today at midnight UTC
     default_start = now_utc - timedelta(days=days_back)
     current_start = default_start
@@ -295,41 +294,43 @@ def run_historical_ingestion(operator_list, days_back=30):
             status.warning(f"Could not verify previous records. Defaulting to full {days_back} days. Error: {e}")
 
         # --- INGESTION LOOP ---
+        # FR24's flight-summary endpoint enforces a hard 14-day max range between
+        # flight_datetime_from/flight_datetime_to (confirmed in FR24's own MCP
+        # server source: "Maximum query range is 14 days."). Exceeding it is what
+        # caused "400 Bad Request" on fresh, un-chunked 30-day pulls. Each request
+        # must be pre-chunked into <=14-day windows rather than relying on the
+        # response to narrow the range. Chunking does NOT reduce how much history
+        # is ingested -- the loop still walks the full `days_back` window, just
+        # via multiple compliant requests.
+        MAX_BLOCK_DAYS = 14
         while current_start < now_utc:
+            block_end = min(current_start + timedelta(days=MAX_BLOCK_DAYS), now_utc)
             start_date_str = current_start.strftime('%Y-%m-%dT%H:%M:%S')
-            print(f"Fetching 20 flights starting from {start_date_str}...")
-            status.write(f"Querying time-block initialization from: `{start_date_str}`...")
-            
+            block_end_str = block_end.strftime('%Y-%m-%dT%H:%M:%S')
+            print(f"Fetching flights from {start_date_str} to {block_end_str}...")
+            status.write(f"Querying time-block: `{start_date_str}` to `{block_end_str}`...")
+
             try:
-                api_response = fetch_fr24_data(api_operator_string, start_date_str, end_date_str, status_ui=status) 
+                api_response = fetch_fr24_data(api_operator_string, start_date_str, block_end_str, status_ui=status)
                 raw_flights = api_response.get("data", [])
-                
-                if not raw_flights:
-                    print("No more flights found.")
-                    status.write("Pipeline scanning complete: No further records detected.")
-                    break
-                    
-                count = process_and_store_flights(operator_list[0], api_response)
-                total_flights += count
-                status.write(f"Batch update finalized. Added `{count}` tracking elements to ledger.")
-                
-                # If we got LESS than 20 flights, we have reached the very end of the 30 days
-                if len(raw_flights) < 20:
-                    print(f"Reached the end. Total flights saved: {total_flights}")
-                    break
-                    
-                # Grab the 'first_seen' time of the very last (20th) flight in the list
-                last_flight_time_str = raw_flights[-1].get("first_seen")
-                last_flight_dt = datetime.fromisoformat(last_flight_time_str.replace('Z', '+00:00'))
-                current_start = last_flight_dt + timedelta(seconds=1)
-                
+
+                if raw_flights:
+                    count = process_and_store_flights(operator_list[0], api_response)
+                    total_flights += count
+                    status.write(f"Batch update finalized. Added `{count}` tracking elements to ledger.")
+                else:
+                    status.write("No records in this time block.")
+
+                current_start = block_end
+
             except Exception as e:
                 print(f"Failed on chunk starting {start_date_str}: {e}")
                 status.error(f"Thread failure on block sequence near {start_date_str}: {e}")
-                break 
-            
-            status.write("API Rate Limit Cooldown: Pausing for 6.5 seconds...")
-            time.sleep(6.5) 
+                break
+
+            if current_start < now_utc:
+                status.write("API Rate Limit Cooldown: Pausing for 6.5 seconds...")
+                time.sleep(6.5)
 
         # Complete the state rendering nicely
         status.update(label=f"Ingestion Success: {total_flights} total operational segments processed.", state="complete", expanded=False)
