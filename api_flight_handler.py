@@ -127,9 +127,9 @@ def fetch_fr24_data(operator_string="TEST", start_date_str=None, end_date_str=No
 
     try:
         response = requests.get(url, headers=headers, params=params, timeout=30)
-        response.raise_for_status() 
+        response.raise_for_status()
         json_data = response.json()
-        
+
         raw_flights = json_data.get("data", json_data) if isinstance(json_data, dict) else json_data
 
         mapped_data = []
@@ -139,27 +139,37 @@ def fetch_fr24_data(operator_string="TEST", start_date_str=None, end_date_str=No
                 "flight": flight.get("flight", ""),
                 "callsign": flight.get("callsign", ""),
                 "operated_as": flight.get("operating_as", operator_string.split(",")[0]),
-                "painted_as": flight.get("painted_as", ""),         
+                "painted_as": flight.get("painted_as", ""),
                 "type": flight.get("type", ""),
                 "reg": flight.get("reg", ""),
-                "origin_icao": flight.get("orig_icao", ""), 
+                "origin_icao": flight.get("orig_icao", ""),
                 "datetime_takeoff": _format_sdk_date(flight.get("datetime_takeoff")),
-                "destination_icao": flight.get("dest_icao", ""), 
-                "destination_icao_actual": flight.get("dest_icao_actual", ""), 
+                "destination_icao": flight.get("dest_icao", ""),
+                "destination_icao_actual": flight.get("dest_icao_actual", ""),
                 "datetime_landed": _format_sdk_date(flight.get("datetime_landed")),
                 "hex": flight.get("hex", ""),
-                "first_seen": _format_sdk_date(flight.get("first_seen")),        
+                "first_seen": _format_sdk_date(flight.get("first_seen")),
                 "last_seen": _format_sdk_date(flight.get("last_seen")),
                 "flight_ended": flight.get("flight_ended", True)
             })
-                
-        return {"data": mapped_data}
+
+        return {"data": mapped_data, "failed": False}
 
     except requests.exceptions.RequestException as e:
-        print(f"Direct API call failed: {e}")
-        if status_ui: 
-            status_ui.error(f"Network error on current block: {e}")
-        return {"data": []}
+        # Surface the response body when present -- FR24 error responses (rate
+        # limits, exhausted credits, bad params) carry the real reason there,
+        # and it's lost if we only print/show the generic exception text.
+        detail = str(e)
+        if getattr(e, "response", None) is not None:
+            detail = f"{e} | Response: {e.response.text[:500]}"
+        print(f"Direct API call failed: {detail}")
+        if status_ui:
+            status_ui.error(f"API request failed on current block: {detail}")
+        # IMPORTANT: "failed" is distinct from a genuinely empty "data": [].
+        # Callers must NOT treat a failed request the same as "no flights in
+        # this window" -- doing so causes the ingestion loop to silently skip
+        # past (and never retry) a time block it never actually fetched.
+        return {"data": [], "failed": True}
 
 def process_and_store_flights(operator_icao, api_response, status_ui=None):
     raw_flights = api_response.get("data", [])
@@ -303,6 +313,8 @@ def run_historical_ingestion(operator_list, days_back=30):
         # is ingested -- the loop still walks the full `days_back` window, just
         # via multiple compliant requests.
         MAX_BLOCK_DAYS = 14
+        MAX_BLOCK_RETRIES = 3
+        pipeline_incomplete = False
         while current_start < now_utc:
             block_end = min(current_start + timedelta(days=MAX_BLOCK_DAYS), now_utc)
             start_date_str = current_start.strftime('%Y-%m-%dT%H:%M:%S')
@@ -311,7 +323,24 @@ def run_historical_ingestion(operator_list, days_back=30):
             status.write(f"Querying time-block: `{start_date_str}` to `{block_end_str}`...")
 
             try:
+                attempt = 0
                 api_response = fetch_fr24_data(api_operator_string, start_date_str, block_end_str, status_ui=status)
+                while api_response.get("failed") and attempt < MAX_BLOCK_RETRIES:
+                    attempt += 1
+                    backoff = 6.5 * attempt
+                    status.write(f"Block request failed, retrying ({attempt}/{MAX_BLOCK_RETRIES}) after {backoff}s...")
+                    time.sleep(backoff)
+                    api_response = fetch_fr24_data(api_operator_string, start_date_str, block_end_str, status_ui=status)
+
+                if api_response.get("failed"):
+                    # Do NOT advance current_start -- this block was never
+                    # actually fetched, so treating it as "done" would
+                    # permanently lose that window's data. Stop the run here
+                    # instead of silently reporting a partial total as success.
+                    status.error(f"Giving up on time-block `{start_date_str}` after {MAX_BLOCK_RETRIES} failed attempts. Stopping so this window isn't skipped.")
+                    pipeline_incomplete = True
+                    break
+
                 raw_flights = api_response.get("data", [])
 
                 if raw_flights:
@@ -326,13 +355,21 @@ def run_historical_ingestion(operator_list, days_back=30):
             except Exception as e:
                 print(f"Failed on chunk starting {start_date_str}: {e}")
                 status.error(f"Thread failure on block sequence near {start_date_str}: {e}")
+                pipeline_incomplete = True
                 break
 
             if current_start < now_utc:
                 status.write("API Rate Limit Cooldown: Pausing for 6.5 seconds...")
                 time.sleep(6.5)
 
-        # Complete the state rendering nicely
-        status.update(label=f"Ingestion Success: {total_flights} total operational segments processed.", state="complete", expanded=False)
+        # Complete the state rendering nicely. A run that gave up mid-window is
+        # NOT a success, even if it picked up some flights before failing --
+        # callers (e.g. the "Add Profile" flow) use the success flag to decide
+        # whether to keep or roll back what was ingested, and a silent partial
+        # total masquerading as success would leave incomplete history behind.
+        if pipeline_incomplete:
+            status.update(label=f"Ingestion Incomplete: only {total_flights} operational segments processed before stopping.", state="error", expanded=True)
+        else:
+            status.update(label=f"Ingestion Success: {total_flights} total operational segments processed.", state="complete", expanded=False)
 
-    return True, total_flights
+    return not pipeline_incomplete, total_flights
